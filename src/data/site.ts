@@ -1,4 +1,7 @@
+import pkg from '../../package.json'
+
 export const site = {
+  version: `v${pkg.version}`,
   name: 'Euge Buteler',
   title: 'Euge Buteler | Mentoría 1 a 1',
   headline: {

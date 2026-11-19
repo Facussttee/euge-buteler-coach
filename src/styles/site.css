@@ -335,6 +335,7 @@ section[id] { scroll-margin-top: 1rem; }
 .form-status:empty { margin-top: 0; }
 .site-footer { border-block-start: 1px solid var(--line); border-block-end: 0; }
 .footer-inner > :last-child { display: inline-flex; gap: 0.45rem; align-items: center; min-height: 44px; }
+.site-version { color: var(--muted); font-size: 0.875rem; }
 .confirmation { padding-block: 15vh 4rem; }
 .confirmation p { margin-block: 0.8rem 1.4rem; }
 

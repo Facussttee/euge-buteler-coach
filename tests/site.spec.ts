@@ -34,6 +34,7 @@ test('muestra la oferta y la navegación sin JavaScript', async ({ browser }) =>
   await expect(page.getByRole('link', { name: '¿Sentís que si vos no empujás, nada funciona?' }))
     .toHaveAttribute('href', 'https://www.youtube.com/watch?v=hPi-R-CJp3Q')
   await expect(page.locator('form')).toHaveAttribute('action', 'https://formsubmit.co/eugebutelercoach@gmail.com')
+  await expect(page.locator('.site-footer')).toContainText('v1.0.0')
   await page.close()
 })
 
