@@ -19,8 +19,8 @@ Para la portada, usar el original del retrato de perfil con blazer blanco en for
 ## Antes de publicar
 
 1. Revisar los textos y el contenido audiovisual con Euge. Confirmar qué casilla va a recibir las consultas.
-2. Conectar el repositorio a Cloudflare Pages con comando de compilación `npm run build` y directorio de salida `dist`.
-3. Si se usa un proveedor externo para el formulario (por ejemplo Formspree), definir `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare Pages.
+2. Conectar el repositorio a Cloudflare Pages / Workers con comando de compilación `npm run build` y directorio de salida `dist`.
+3. El formulario envía las consultas directamente a `eugebutelercoach@gmail.com` mediante FormSubmit. En el primer envío real, FormSubmit mandará un correo de verificación a esa casilla para activar el formulario con un clic (`Activate Form`). Opcionalmente, podés sobreescribir el destino con `PUBLIC_WEB3FORMS_KEY` o `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare.
 4. Enviar una consulta de prueba acordada y comprobar que llega a la casilla configurada.
 5. Desde un celular, probar el DM, la reproducción y el enlace a YouTube. Abrir también la tarjeta al compartir la URL pública.
 
