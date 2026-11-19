@@ -6,10 +6,11 @@ export const site = {
     emphasis: 'pero seguís reaccionando igual',
   },
   description: 'En mis mentorías 1 a 1 te acompaño a soltar un poco el control y a disfrutar más de lo que construís.',
+  email: 'eugebutelercoach@gmail.com',
   instagram: {
     handle: '@eugebuteler.coach',
     profileUrl: 'https://www.instagram.com/eugebuteler.coach/',
-    messageUrl: 'https://ig.me/m/eugebuteler.coach',
+    messageUrl: 'https://www.instagram.com/eugebuteler.coach/',
   },
   youtube: {
     handle: '@EugeniaButeler',

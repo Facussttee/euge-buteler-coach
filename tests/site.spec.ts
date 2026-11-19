@@ -22,7 +22,7 @@ test('muestra la oferta y la navegación sin JavaScript', async ({ browser }) =>
   }
   for (const section of [page.locator('.hero'), page.locator('#contacto')]) {
     await expect(section.getByRole('link', { name: 'Escribime por Instagram' }))
-      .toHaveAttribute('href', 'https://ig.me/m/eugebuteler.coach')
+      .toHaveAttribute('href', 'https://www.instagram.com/eugebuteler.coach/')
   }
   await expect(page.locator('.hero').getByRole('link', { name: /Mi YouTube.*@EugeniaButeler/ }))
     .toHaveAttribute('href', 'https://www.youtube.com/@EugeniaButeler')
@@ -33,7 +33,7 @@ test('muestra la oferta y la navegación sin JavaScript', async ({ browser }) =>
     .toHaveAttribute('href', 'https://www.youtube.com/watch?v=morOs8tyx9c')
   await expect(page.getByRole('link', { name: '¿Sentís que si vos no empujás, nada funciona?' }))
     .toHaveAttribute('href', 'https://www.youtube.com/watch?v=hPi-R-CJp3Q')
-  await expect(page.locator('form')).toHaveAttribute('action', '/gracias/')
+  await expect(page.locator('form')).toHaveAttribute('action', 'https://formsubmit.co/eugebutelercoach@gmail.com')
   await page.close()
 })
 
@@ -90,14 +90,20 @@ test('muestra una foto, la trayectoria y tres testimonios en texto', async ({ pa
 
 test('valida el correo y conserva los campos si el envío falla', async ({ page }) => {
   let submissions = 0
-  await page.route('**/gracias/', (route) => {
+  await page.route('https://formsubmit.co/**', (route) => {
     submissions++
     return route.abort()
   })
   await page.goto('/')
+  await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
   const submit = page.getByRole('button', { name: 'Enviar consulta' })
   await submit.click()
   await expect(page.getByLabel('Nombre', { exact: true })).toBeFocused()
+  await fillContactForm(page)
+  await page.getByLabel('Nombre', { exact: true }).fill('   ')
+  await submit.click()
+  await expect(page.getByLabel('Nombre', { exact: true })).toBeFocused()
+  expect(submissions).toBe(0)
   await fillContactForm(page)
   await page.getByLabel('Correo electrónico').fill('correo-invalido')
   await submit.click()
@@ -105,17 +111,26 @@ test('valida el correo y conserva los campos si el envío falla', async ({ page 
   expect(submissions).toBe(0)
   await fillContactForm(page)
   await submit.click()
-  await expect(page.locator('form').getByRole('status')).toContainText('No se pudo enviar')
+  const alert = page.locator('form').getByRole('alert')
+  await expect(alert).toContainText('No se pudo enviar')
+  await expect(alert.getByRole('link', { name: /escribime por Instagram/ }))
+    .toHaveAttribute('href', 'https://www.instagram.com/eugebuteler.coach/')
   await expect(page.getByLabel('¿Qué te gustaría consultar?')).toHaveValue('¿Cómo es el primer encuentro?')
   await expect(page.getByRole('button', { name: 'Reintentar' })).toBeEnabled()
 })
 
 test('envía una sola consulta y confirma cuando el proveedor responde', async ({ page }) => {
   const requests: string[] = []
-  await page.route('**/gracias/', async (route) => {
+  let acceptHeader = ''
+  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
+    acceptHeader = route.request().headers()['accept'] ?? ''
     requests.push(route.request().postData() ?? '')
-    await route.fulfill({ status: 200 })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: 'true' }),
+    })
   })
   await page.goto('/')
   await fillContactForm(page)
@@ -124,24 +139,31 @@ test('envía una sola consulta y confirma cuando el proveedor responde', async (
     button.click()
   })
   await expect(page).toHaveURL(/\/gracias\/$/)
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Gracias por escribirme')
+  await expect(page.getByRole('link', { name: /videos en YouTube/ }))
+    .toHaveAttribute('href', 'https://www.youtube.com/@EugeniaButeler')
+  expect(acceptHeader).toContain('application/json')
   expect(requests).toHaveLength(1)
   const values = new URLSearchParams(requests[0])
   expect(values.get('form-name')).toBe('consulta-mentoria')
   expect(values.get('email')).toBe('maria@example.com')
+  expect(values.get('_subject')).toContain('Euge Buteler')
 })
 
 test('mantiene el envío HTML cuando JavaScript está desactivado', async ({ browser }) => {
   const page = await browser.newPage({ javaScriptEnabled: false })
-  await page.route('**/gracias/', (route) => route.fulfill({ body: 'Consulta recibida' }))
+  await page.route('https://formsubmit.co/eugebutelercoach@gmail.com', (route) =>
+    route.fulfill({ status: 200, body: 'Consulta recibida' }),
+  )
   await page.goto('/')
   await fillContactForm(page)
   const posted = page.waitForRequest((request) => request.method() === 'POST')
   await page.getByRole('button', { name: 'Enviar consulta' }).click()
   const request = await posted
-  expect(request.url()).toMatch(/\/gracias\/$/)
+  expect(request.url()).toBe('https://formsubmit.co/eugebutelercoach@gmail.com')
   expect(new URLSearchParams(request.postData() ?? '').get('form-name')).toBe('consulta-mentoria')
-  await expect(page).toHaveURL(/\/gracias\/$/)
+  await expect(page.getByText('Consulta recibida')).toBeVisible()
   await page.close()
 })
 

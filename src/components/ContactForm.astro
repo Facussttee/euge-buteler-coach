@@ -1,5 +1,14 @@
 ---
-const formAction = import.meta.env.PUBLIC_FORM_ENDPOINT || '/gracias/'
+import { site } from '../data/site'
+
+const web3FormsKey = import.meta.env.PUBLIC_WEB3FORMS_KEY
+const formAction =
+  import.meta.env.PUBLIC_FORM_ENDPOINT ||
+  (web3FormsKey ? 'https://api.web3forms.com/submit' : `https://formsubmit.co/${site.email}`)
+const ajaxEndpoint =
+  import.meta.env.PUBLIC_FORM_ENDPOINT ||
+  (web3FormsKey ? 'https://api.web3forms.com/submit' : `https://formsubmit.co/ajax/${site.email}`)
+const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString() : undefined
 ---
 
 <form
@@ -7,39 +16,96 @@ const formAction = import.meta.env.PUBLIC_FORM_ENDPOINT || '/gracias/'
   name="consulta-mentoria"
   method="POST"
   action={formAction}
+  data-endpoint={ajaxEndpoint}
+  data-ig-url={site.instagram.messageUrl}
 >
-  <h3>También podés escribirme desde acá</h3>
+  <h3>O escribime por mail desde acá</h3>
   <input type="hidden" name="form-name" value="consulta-mentoria" />
-  <p hidden><label>Dejá este campo vacío <input name="bot-field" tabindex="-1" autocomplete="off" /></label></p>
+  <input type="hidden" name="_subject" value="Nueva consulta de mentoría 1 a 1 — Euge Buteler" />
+  <input type="hidden" name="_template" value="table" />
+  <input type="hidden" name="_captcha" value="false" />
+  {confirmationUrl && <input type="hidden" name="_next" value={confirmationUrl} />}
+  {web3FormsKey && <input type="hidden" name="access_key" value={web3FormsKey} />}
+  {web3FormsKey && <input type="hidden" name="subject" value="Nueva consulta de mentoría 1 a 1 — Euge Buteler" />}
+  <p hidden>
+    <label>Dejá este campo vacío <input name="_honey" tabindex="-1" autocomplete="off" /></label>
+    <label>No completar <input name="bot-field" tabindex="-1" autocomplete="off" /></label>
+  </p>
 
   <label for="contact-name">Nombre</label>
-  <input id="contact-name" name="name" autocomplete="name" required />
+  <input id="contact-name" name="name" autocomplete="name" placeholder="Ej: Lucía" required />
 
   <label for="contact-email">Correo electrónico</label>
-  <input id="contact-email" name="email" type="email" autocomplete="email" spellcheck="false" required />
+  <input
+    id="contact-email"
+    name="email"
+    type="email"
+    inputmode="email"
+    autocomplete="email"
+    spellcheck="false"
+    placeholder="tu@correo.com"
+    required
+  />
 
   <label for="contact-message">¿Qué te gustaría consultar?</label>
-  <textarea id="contact-message" name="message" rows="4" required></textarea>
+  <textarea
+    id="contact-message"
+    name="message"
+    rows="4"
+    placeholder="Contame en dos líneas qué te pasa hoy o qué querés trabajar en la mentoría…"
+    required
+  ></textarea>
 
-  <p class="form-note">Uso estos datos para responderte por correo.</p>
+  <p class="form-note">Lo leo yo personalmente y te respondo en 24 a 48 hs hábiles. Tus datos se usan solo para contestarte.</p>
   <button class="button" type="submit">Enviar consulta</button>
-  <p class="form-status" role="status"></p>
+  <p class="form-status" role="alert"></p>
 </form>
 
 <script>
+  const confirmationPath = '/gracias/'
   const form = document.querySelector<HTMLFormElement>('form[name="consulta-mentoria"]')
   const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
-  const status = form?.querySelector<HTMLElement>('[role="status"]')
+  const status = form?.querySelector<HTMLElement>('.form-status')
+  const initialButtonLabel = button?.textContent ?? 'Enviar consulta'
+
+  function resetSubmitState() {
+    if (!form || !button) return
+    button.disabled = false
+    button.textContent = initialButtonLabel
+    form.removeAttribute('aria-busy')
+  }
 
   if (form && button && status) {
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) resetSubmitState()
+    })
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
       if (button.disabled) return
 
+      const nameInput = form.querySelector<HTMLInputElement>('[name="name"]')
+      const messageInput = form.querySelector<HTMLTextAreaElement>('[name="message"]')
+      for (const field of [nameInput, messageInput]) {
+        if (field && field.value.trim().length === 0) {
+          field.value = ''
+          field.reportValidity()
+          field.focus()
+          return
+        }
+      }
+
+      const honeyInput = form.querySelector<HTMLInputElement>('[name="_honey"]')
+      const botInput = form.querySelector<HTMLInputElement>('[name="bot-field"]')
+      if (honeyInput?.value || botInput?.value) {
+        window.location.assign(confirmationPath)
+        return
+      }
+
       button.disabled = true
       form.setAttribute('aria-busy', 'true')
       button.textContent = 'Enviando…'
-      status.textContent = 'Enviando consulta…'
+      status.textContent = ''
 
       try {
         const body = new URLSearchParams()
@@ -47,15 +113,23 @@ const formAction = import.meta.env.PUBLIC_FORM_ENDPOINT || '/gracias/'
           if (typeof value === 'string') body.append(name, value)
         }
 
-        const response = await fetch(form.action, {
+        const response = await fetch(form.dataset.endpoint || form.action, {
           method: 'POST',
+          headers: { Accept: 'application/json' },
           body,
         })
-        if (!response.ok) throw new Error('El envío no fue aceptado')
-        window.location.assign(form.action)
+        const result = await response.clone().json().catch(() => null)
+        if (!response.ok || result?.success === false || result?.success === 'false') {
+          throw new Error('El envío no fue aceptado')
+        }
+        window.location.assign(confirmationPath)
       } catch {
         form.removeAttribute('aria-busy')
-        status.textContent = 'No se pudo enviar tu consulta. Revisá tu conexión o escribime por Instagram.'
+        status.textContent = 'No se pudo enviar tu consulta. Revisá tu conexión o '
+        const igLink = document.createElement('a')
+        igLink.href = form.dataset.igUrl || 'https://www.instagram.com/eugebuteler.coach/'
+        igLink.textContent = 'escribime por Instagram ↗'
+        status.append(igLink, '.')
         button.textContent = 'Reintentar'
         button.disabled = false
       }

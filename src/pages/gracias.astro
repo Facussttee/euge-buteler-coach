@@ -1,11 +1,15 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
+import { site } from '../data/site'
 ---
 
 <BaseLayout title="Gracias por escribirme | Euge Buteler" noindex>
   <main id="contenido" tabindex="-1" class="wrap confirmation">
     <h1>Gracias por escribirme</h1>
-    <p>Recibí tu consulta. Te respondo al correo que dejaste.</p>
-    <a href="/" class="button">Volver al inicio</a>
+    <p>Ya recibí tu consulta. Lo leo personalmente y te respondo al correo que dejaste dentro de las próximas 24 a 48 hs hábiles. Si no ves mi mail, revisá Spam o Promociones.</p>
+    <div class="hero-actions">
+      <a href="/" class="button">Volver al inicio</a>
+      <a href={site.youtube.channelUrl} class="text-link">Mientras tanto, mirá mis videos en YouTube <span aria-hidden="true">↗</span></a>
+    </div>
   </main>
 </BaseLayout>

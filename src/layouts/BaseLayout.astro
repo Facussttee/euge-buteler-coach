@@ -12,7 +12,8 @@ interface Props {
 
 const { title = site.title, noindex = false } = Astro.props
 const canonical = Astro.site && new URL(Astro.url.pathname, Astro.site)
-const preventIndexing = noindex || import.meta.env.CONTEXT !== 'production'
+const cfBranch = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.CF_PAGES_BRANCH
+const preventIndexing = noindex || !import.meta.env.PROD || Boolean(cfBranch && cfBranch !== 'main')
 ---
 
 <!doctype html>
