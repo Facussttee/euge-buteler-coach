@@ -63,6 +63,8 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
 
 <script>
   const confirmationPath = '/gracias/'
+  const SUBMIT_HANDOFF_MS = 8_000
+  const MAX_KEEPALIVE_BYTES = 60_000
   const form = document.querySelector<HTMLFormElement>('form[name="consulta-mentoria"]')
   const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
   const status = form?.querySelector<HTMLElement>('.form-status')
@@ -107,23 +109,49 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
       button.textContent = 'Enviando…'
       status.textContent = ''
 
+      let settled = false
+      let graceTimer: number | undefined
+
       try {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw new Error('Sin conexión a internet')
+        }
+
         const body = new URLSearchParams()
         for (const [name, value] of new FormData(form)) {
-          if (typeof value === 'string') body.append(name, value)
+          if (typeof value === 'string' && name !== '_next') body.append(name, value)
         }
+
+        const byteLength = new TextEncoder().encode(body.toString()).length
+        graceTimer = window.setTimeout(() => {
+          if (settled) return
+          settled = true
+          window.location.assign(confirmationPath)
+        }, SUBMIT_HANDOFF_MS)
 
         const response = await fetch(form.dataset.endpoint || form.action, {
           method: 'POST',
           headers: { Accept: 'application/json' },
           body,
+          keepalive: byteLength <= MAX_KEEPALIVE_BYTES,
         })
-        const result = await response.clone().json().catch(() => null)
-        if (!response.ok || result?.success === false || result?.success === 'false') {
+
+        window.clearTimeout(graceTimer)
+        if (settled) return
+
+        const result: unknown = await response.clone().json().catch(() => null)
+        const isRecord = typeof result === 'object' && result !== null && !Array.isArray(result)
+        const success = isRecord && 'success' in result ? result.success : undefined
+        if (!response.ok || !isRecord || success === false || success === 'false') {
           throw new Error('El envío no fue aceptado')
         }
+
+        settled = true
         window.location.assign(confirmationPath)
       } catch {
+        window.clearTimeout(graceTimer)
+        if (settled) return
+
         form.removeAttribute('aria-busy')
         status.textContent = 'No se pudo enviar tu consulta. Revisá tu conexión o '
         const igLink = document.createElement('a')

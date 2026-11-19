@@ -34,7 +34,7 @@ test('muestra la oferta y la navegación sin JavaScript', async ({ browser }) =>
   await expect(page.getByRole('link', { name: '¿Sentís que si vos no empujás, nada funciona?' }))
     .toHaveAttribute('href', 'https://www.youtube.com/watch?v=hPi-R-CJp3Q')
   await expect(page.locator('form')).toHaveAttribute('action', 'https://formsubmit.co/eugebutelercoach@gmail.com')
-  await expect(page.locator('.site-footer')).toContainText('v1.0.0')
+  await expect(page.locator('.site-footer')).toContainText('v1.0.1')
   await page.close()
 })
 
@@ -194,4 +194,266 @@ test('el texto al 200% conserva el ancho y el acceso a Instagram en móvil', asy
   const message = page.locator('.hero').getByRole('link', { name: 'Escribime por Instagram' })
   await message.scrollIntoViewIfNeeded()
   await expect(message).toBeInViewport({ ratio: 1 })
+})
+
+test('muestra estado en curso e impide envíos duplicados mientras espera al proveedor', async ({ page }) => {
+  const requests: string[] = []
+  let releasePost!: () => void
+  const postGate = new Promise<void>((resolve) => {
+    releasePost = resolve
+  })
+
+  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    requests.push(route.request().postData() ?? '')
+    await postGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: 'true' }),
+    })
+  })
+
+  await page.goto('/')
+  await fillContactForm(page)
+  const form = page.locator('form[name="consulta-mentoria"]')
+  const submitButton = form.locator('button[type="submit"]')
+  await submitButton.click()
+
+  await expect.poll(() => requests.length).toBe(1)
+  await expect(submitButton).toBeDisabled()
+  await expect(submitButton).toHaveText('Enviando…')
+  await expect(form).toHaveAttribute('aria-busy', 'true')
+  await expect(form.getByRole('alert')).toHaveText('')
+
+  await form.evaluate((el: HTMLFormElement) => {
+    el.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  })
+  expect(requests).toHaveLength(1)
+
+  releasePost()
+  await expect(page).toHaveURL(/\/gracias\/$/)
+  expect(requests).toHaveLength(1)
+})
+
+test('redirige a /gracias/ tras la ventana de gracia si FormSubmit queda colgado', async ({ page }) => {
+  const requests: string[] = []
+  await page.clock.install()
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      sessionStorage.setItem('__lastFetchKeepalive', String(Boolean(init?.keepalive)))
+      return originalFetch(input, init)
+    }
+  })
+
+  let releaseHang!: () => void
+  const hangGate = new Promise<void>((resolve) => {
+    releaseHang = resolve
+  })
+
+  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    requests.push(route.request().postData() ?? '')
+    await hangGate
+    try {
+      await route.abort()
+    } catch {
+      // Page already navigated away
+    }
+  })
+
+  await page.goto('/')
+  await expect(page.locator('form input[name="_next"]')).toHaveValue(/\/gracias\/$/)
+  await fillContactForm(page)
+  await page.getByRole('button', { name: 'Enviar consulta' }).click()
+
+  await expect.poll(() => requests.length).toBe(1)
+  await expect(page.getByRole('button', { name: 'Enviando…' })).toBeDisabled()
+
+  await page.clock.runFor(8_000)
+  await expect(page).toHaveURL(/\/gracias\/$/)
+  expect(await page.evaluate(() => sessionStorage.getItem('__lastFetchKeepalive'))).toBe('true')
+  expect(requests).toHaveLength(1)
+  const payload = new URLSearchParams(requests[0])
+  expect(payload.has('_next')).toBe(false)
+  expect(payload.get('email')).toBe('maria@example.com')
+
+  releaseHang()
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
+
+test('ignora rechazo o 504 tardío de FormSubmit después de la ventana de gracia', async ({ page }) => {
+  const requests: string[] = []
+  await page.clock.install()
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      sessionStorage.setItem('__lastFetchKeepalive', String(Boolean(init?.keepalive)))
+      return originalFetch(input, init).then(
+        (response) => {
+          sessionStorage.setItem('__fetchSettled', 'true')
+          return response
+        },
+        (error: unknown) => {
+          sessionStorage.setItem('__fetchSettled', 'true')
+          throw error
+        },
+      )
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.querySelector('form[name="consulta-mentoria"]')
+      if (!form) return
+      const observer = new MutationObserver(() => {
+        const alertText = form.querySelector('.form-status')?.textContent?.trim() ?? ''
+        const buttonText = form.querySelector('button[type="submit"]')?.textContent?.trim() ?? ''
+        if (alertText.length > 0 || buttonText === 'Reintentar') {
+          sessionStorage.setItem('__errorUiShown', 'true')
+        }
+      })
+      observer.observe(form, { childList: true, subtree: true, characterData: true })
+    })
+  })
+
+  let releasePost!: () => void
+  const postGate = new Promise<void>((resolve) => {
+    releasePost = resolve
+  })
+  let markGraciasRequested!: () => void
+  const graciasRequested = new Promise<void>((resolve) => {
+    markGraciasRequested = resolve
+  })
+  let releaseGracias!: () => void
+  const graciasGate = new Promise<void>((resolve) => {
+    releaseGracias = resolve
+  })
+
+  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    requests.push(route.request().postData() ?? '')
+    await postGate
+    try {
+      await route.fulfill({
+        status: 504,
+        contentType: 'text/html',
+        body: '<h1>504 Gateway Time-out</h1>',
+      })
+    } catch {
+      // Navigation already completed
+    }
+  })
+
+  await page.route('**/gracias/', async (route) => {
+    markGraciasRequested()
+    await graciasGate
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await fillContactForm(page)
+  const form = page.locator('form[name="consulta-mentoria"]')
+  await form.getByRole('button', { name: 'Enviar consulta' }).click()
+
+  await expect.poll(() => requests.length).toBe(1)
+  await page.clock.runFor(8_000)
+  await graciasRequested
+
+  releasePost()
+  await new Promise((resolve) => setTimeout(resolve, 100))
+
+  releaseGracias()
+  await expect(page).toHaveURL(/\/gracias\/$/)
+  expect(await page.evaluate(() => sessionStorage.getItem('__lastFetchKeepalive'))).toBe('true')
+  expect(await page.evaluate(() => sessionStorage.getItem('__fetchSettled'))).toBe('true')
+  expect(await page.evaluate(() => sessionStorage.getItem('__errorUiShown'))).toBeNull()
+  expect(requests).toHaveLength(1)
+  expect(new URLSearchParams(requests[0]).has('_next')).toBe(false)
+})
+
+for (const scenario of [
+  {
+    name: '200 con success false',
+    fulfill: { status: 200, contentType: 'application/json', body: JSON.stringify({ success: 'false', message: 'Activation required' }) },
+  },
+  {
+    name: '200 con HTML no JSON',
+    fulfill: { status: 200, contentType: 'text/html', body: '<html><body>Error</body></html>' },
+  },
+  {
+    name: 'HTTP 500',
+    fulfill: { status: 500, contentType: 'application/json', body: JSON.stringify({ success: 'false' }) },
+  },
+]) {
+  test(`entra en error ante ${scenario.name} y permite reintentar con éxito`, async ({ page }) => {
+    let attempt = 0
+    await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      attempt++
+      if (attempt === 1) {
+        await route.fulfill(scenario.fulfill)
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: 'true' }),
+      })
+    })
+
+    await page.goto('/')
+    await fillContactForm(page)
+    const form = page.locator('form[name="consulta-mentoria"]')
+    await form.getByRole('button', { name: 'Enviar consulta' }).click()
+
+    const alert = form.getByRole('alert')
+    await expect(alert).toContainText('No se pudo enviar')
+    await expect(alert.getByRole('link', { name: /escribime por Instagram/ }))
+      .toHaveAttribute('href', 'https://www.instagram.com/eugebuteler.coach/')
+    await expect(form).not.toHaveAttribute('aria-busy', 'true')
+    await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('María')
+    await expect(page.getByLabel('Correo electrónico')).toHaveValue('maria@example.com')
+    await expect(page.getByLabel('¿Qué te gustaría consultar?')).toHaveValue('¿Cómo es el primer encuentro?')
+
+    const retry = form.getByRole('button', { name: 'Reintentar' })
+    await expect(retry).toBeEnabled()
+    await retry.click()
+
+    await expect(page).toHaveURL(/\/gracias\/$/)
+    expect(attempt).toBe(2)
+  })
+}
+
+test('falla rápido sin conexión y permite reintentar al volver en línea', async ({ page, context }) => {
+  let attempt = 0
+  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    attempt++
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: 'true' }),
+    })
+  })
+
+  await page.goto('/')
+  await fillContactForm(page)
+  await context.setOffline(true)
+
+  const form = page.locator('form[name="consulta-mentoria"]')
+  await form.getByRole('button', { name: 'Enviar consulta' }).click()
+
+  await expect(form.getByRole('alert')).toContainText('No se pudo enviar')
+  await expect(form).not.toHaveAttribute('aria-busy', 'true')
+  await expect(page.getByLabel('¿Qué te gustaría consultar?')).toHaveValue('¿Cómo es el primer encuentro?')
+  expect(attempt).toBe(0)
+
+  const retry = form.getByRole('button', { name: 'Reintentar' })
+  await expect(retry).toBeEnabled()
+
+  await context.setOffline(false)
+  await retry.click()
+
+  await expect(page).toHaveURL(/\/gracias\/$/)
+  expect(attempt).toBe(1)
 })
