@@ -1,0 +1,97 @@
+---
+interface Props {
+  playlistId?: string
+  videos: { id: string; title: string }[]
+}
+
+const { playlistId, videos } = Astro.props
+const items = videos.map(({ id, title }) => ({
+  title,
+  embedUrl: 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id),
+  watchUrl: 'https://www.youtube.com/watch?v=' + encodeURIComponent(id),
+}))
+if (playlistId) items.push({
+  title: 'Mi lista de YouTube',
+  embedUrl: 'https://www.youtube-nocookie.com/embed/videoseries?list=' + encodeURIComponent(playlistId),
+  watchUrl: 'https://www.youtube.com/playlist?list=' + encodeURIComponent(playlistId),
+})
+---
+
+{items.length > 0 && (
+  <div class="video" data-videos={JSON.stringify(items)}>
+    <div class="video-frame">
+      <div class="video-cover">
+        <div class="video-ornament" aria-hidden="true"></div>
+        <p class="video-cover-title">{items[0].title}</p>
+        <button class="play-button" type="button" hidden>
+          <span class="play-icon" aria-hidden="true"></span>
+          Reproducir video
+        </button>
+      </div>
+      {items.length > 1 && (
+        <div class="video-controls" hidden>
+          <button type="button" data-video-step="-1" aria-label="Video anterior">←</button>
+          <span class="video-count" role="status" aria-atomic="true">1 de {items.length}</span>
+          <button type="button" data-video-step="1" aria-label="Video siguiente">→</button>
+        </div>
+      )}
+    </div>
+    <a class="text-link" data-video-link href={items[0].watchUrl}>Ver en YouTube <span aria-hidden="true">↗</span></a>
+    {items.length > 1 && (
+      <noscript>
+        <ul class="video-links">
+          {items.slice(1).map((item) => <li><a href={item.watchUrl}>{item.title}</a></li>)}
+        </ul>
+      </noscript>
+    )}
+  </div>
+)}
+
+<script>
+  const gallery = document.querySelector<HTMLElement>('[data-videos]')
+  const cover = gallery?.querySelector<HTMLElement>('.video-cover')
+  const title = gallery?.querySelector<HTMLElement>('.video-cover-title')
+  const trigger = gallery?.querySelector<HTMLButtonElement>('.play-button')
+  const controls = gallery?.querySelector<HTMLElement>('.video-controls')
+  const count = gallery?.querySelector<HTMLElement>('.video-count')
+  const link = gallery?.querySelector<HTMLAnchorElement>('[data-video-link]')
+
+  if (gallery?.dataset.videos && cover && title && trigger && link) {
+    const items: { title: string; embedUrl: string; watchUrl: string }[] = JSON.parse(gallery.dataset.videos)
+    let currentIndex = 0
+
+    trigger.hidden = false
+    trigger.addEventListener('click', () => {
+      const item = items[currentIndex]
+      const player = document.createElement('iframe')
+      player.src = item.embedUrl
+      player.title = item.title
+      player.allowFullscreen = true
+      player.allow = 'encrypted-media; picture-in-picture'
+      player.referrerPolicy = 'strict-origin-when-cross-origin'
+      player.tabIndex = 0
+      title.hidden = true
+      trigger.hidden = true
+      cover.append(player)
+      player.focus()
+    })
+
+    if (controls && count) {
+      controls.hidden = false
+      for (const button of controls.querySelectorAll<HTMLButtonElement>('button')) {
+        button.addEventListener('click', () => {
+          const step = Number(button.dataset.videoStep)
+          currentIndex = (currentIndex + step + items.length) % items.length
+          const item = items[currentIndex]
+          cover.querySelector('iframe')?.remove()
+          title.textContent = item.title
+          title.hidden = false
+          trigger.hidden = false
+          count.textContent = `${currentIndex + 1} de ${items.length}`
+          count.setAttribute('aria-label', `Video ${currentIndex + 1} de ${items.length}. ${item.title}`)
+          link.href = item.watchUrl
+        })
+      }
+    }
+  }
+</script>

@@ -1,0 +1,27 @@
+# Web de Euge Buteler
+
+Landing estática de mentoría 1 a 1. Astro genera HTML y sirve el CSS y las tipografías locales. El formulario usa Netlify Forms. Los videos se reproducen con el reproductor oficial de YouTube.
+
+## Vista local
+
+Usá Node.js 24 y npm. Desde la raíz del proyecto, ejecutá `npm ci` y `npm run dev`. Astro indica la URL local en la terminal.
+
+`npm run check` valida los tipos y `npm run build` genera el sitio en `dist/`. Para probarlo con Chromium, instalá el navegador una vez con `npx playwright install chromium --only-shell` y ejecutá `npm test`. Las pruebas simulan la respuesta del proveedor del formulario.
+
+## Editar el sitio
+
+- Los borradores, enlaces de contacto y configuración del video están en `src/data/site.ts`.
+- El recuadro de videos recorre los títulos de `site.video.videos` en orden. Para sumar la playlist pública como una opción más, guardá su identificador en `site.video.playlistId` y volvé a compilar. Euge puede actualizar el contenido de esa lista desde YouTube.
+- La portada usa `src/assets/euge-buteler.png`, el retrato en blanco y negro con blazer. Astro genera versiones responsivas en el build. La tarjeta para compartir está en `public/compartir.png`.
+
+Para la portada, usar el original del retrato de perfil con blazer blanco en formato 4:5. Para **Sobre mí**, usar la foto al aire libre del carrusel fijado, idealmente el original limpio del retrato frente al lago. La foto junto a la mesa de madera es una alternativa más cálida para esa sección. [Retrato de perfil](https://www.instagram.com/eugebuteler.coach/) · [Foto del lago](https://www.instagram.com/eugebuteler.coach/p/DdHSSD9FsmK/) · [Foto de la mesa](https://www.instagram.com/eugebuteler.coach/p/Dc0p8lAHFLB/)
+
+## Antes de publicar
+
+1. Revisar los textos y el contenido audiovisual con Euge. Confirmar qué casilla va a recibir las consultas.
+2. Conectar el proyecto a Netlify Free y elegir el nombre de proyecto disponible. `netlify.toml` define el build y el directorio de publicación.
+3. Habilitar la detección de formularios en Netlify y desplegar. Configurar el aviso por correo para `consulta-mentoria`. Confirmar la casilla si Netlify lo solicita.
+4. Enviar una consulta de prueba acordada. Comprobar que aparece en **Forms**, llega a la casilla y Euge puede responder al correo ingresado. El botón se habilita en builds de Netlify. En la vista local queda deshabilitado para evitar confirmaciones falsas.
+5. Desde un celular, probar el DM, la reproducción y el enlace a YouTube. Abrir también la tarjeta al compartir la URL pública.
+
+[Plan de implementación](docs/superpowers/plans/2026-11-18-landing-euge-buteler.md) · [Netlify Forms](https://docs.netlify.com/manage/forms/setup/)
