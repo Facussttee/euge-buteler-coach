@@ -1,6 +1,6 @@
 # Web de Euge Buteler
 
-Landing estática de mentoría 1 a 1. Astro genera HTML y sirve el CSS y las tipografías locales. El formulario usa Netlify Forms. Los videos se reproducen con el reproductor oficial de YouTube.
+Landing estática de mentoría 1 a 1. Astro genera HTML y sirve el CSS y las tipografías locales. Los videos se reproducen con el reproductor oficial de YouTube.
 
 ## Vista local
 
@@ -19,9 +19,9 @@ Para la portada, usar el original del retrato de perfil con blazer blanco en for
 ## Antes de publicar
 
 1. Revisar los textos y el contenido audiovisual con Euge. Confirmar qué casilla va a recibir las consultas.
-2. Conectar el proyecto a Netlify Free y elegir el nombre de proyecto disponible. `netlify.toml` define el build y el directorio de publicación.
-3. Habilitar la detección de formularios en Netlify y desplegar. Configurar el aviso por correo para `consulta-mentoria`. Confirmar la casilla si Netlify lo solicita.
-4. Enviar una consulta de prueba acordada. Comprobar que aparece en **Forms**, llega a la casilla y Euge puede responder al correo ingresado. El botón se habilita en builds de Netlify. En la vista local queda deshabilitado para evitar confirmaciones falsas.
+2. Conectar el repositorio a Cloudflare Pages con comando de compilación `npm run build` y directorio de salida `dist`.
+3. Si se usa un proveedor externo para el formulario (por ejemplo Formspree), definir `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare Pages.
+4. Enviar una consulta de prueba acordada y comprobar que llega a la casilla configurada.
 5. Desde un celular, probar el DM, la reproducción y el enlace a YouTube. Abrir también la tarjeta al compartir la URL pública.
 
-[Plan de implementación](docs/superpowers/plans/2026-11-18-landing-euge-buteler.md) · [Netlify Forms](https://docs.netlify.com/manage/forms/setup/)
+[Plan de implementación](docs/superpowers/plans/2026-11-18-landing-euge-buteler.md) · [Cloudflare Pages](https://developers.cloudflare.com/pages/)

@@ -6,6 +6,6 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4322 --ignore-lock',
     url: 'http://127.0.0.1:4322',
-    env: { ASTRO_TELEMETRY_DISABLED: '1', NETLIFY: 'true' },
+    env: { ASTRO_TELEMETRY_DISABLED: '1' },
   },
 })
