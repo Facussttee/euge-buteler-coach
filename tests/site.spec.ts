@@ -123,6 +123,13 @@ test('valida el correo y conserva los campos si el envío falla', async ({ page 
 test('envía una sola consulta y confirma cuando el proveedor responde', async ({ page }) => {
   const requests: string[] = []
   let acceptHeader = ''
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch
+    window.fetch = (input, init) => {
+      sessionStorage.setItem('testKeepalive', String(init?.keepalive))
+      return originalFetch(input, init)
+    }
+  })
   await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     acceptHeader = route.request().headers()['accept'] ?? ''
@@ -150,6 +157,8 @@ test('envía una sola consulta y confirma cuando el proveedor responde', async (
   expect(values.get('form-name')).toBe('consulta-mentoria')
   expect(values.get('email')).toBe('maria@example.com')
   expect(values.get('_subject')).toContain('Euge Buteler')
+  expect(values.has('_next')).toBe(false)
+  expect(await page.evaluate(() => sessionStorage.getItem('testKeepalive'))).toBe('true')
 })
 
 test('mantiene el envío HTML cuando JavaScript está desactivado', async ({ browser }) => {
@@ -164,8 +173,21 @@ test('mantiene el envío HTML cuando JavaScript está desactivado', async ({ bro
   const request = await posted
   expect(request.url()).toBe('https://formsubmit.co/eugebutelercoach@gmail.com')
   expect(new URLSearchParams(request.postData() ?? '').get('form-name')).toBe('consulta-mentoria')
+  expect(new URLSearchParams(request.postData() ?? '').get('_next')).toMatch(/\/gracias\/$/)
   await expect(page.getByText('Consulta recibida')).toBeVisible()
   await page.close()
+})
+
+test('restablece el formulario al volver tras una confirmación normal', async ({ page }) => {
+  await page.route('https://formsubmit.co/ajax/**', (route) => route.fulfill({ status: 200, json: { success: true } }))
+  await page.goto('/')
+  await fillContactForm(page)
+  await page.getByRole('button', { name: 'Enviar consulta' }).click()
+  await expect(page).toHaveURL(/\/gracias\/$/)
+  await page.goBack()
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+  await expect(page.getByRole('button', { name: 'Enviar consulta' })).toBeEnabled()
+  await expect(page.locator('form[name="consulta-mentoria"]')).not.toHaveAttribute('aria-busy')
 })
 
 for (const width of [320, 360, 390, 768, 1440]) {
@@ -236,142 +258,115 @@ test('muestra estado en curso e impide envíos duplicados mientras espera al pro
   expect(requests).toHaveLength(1)
 })
 
-test('redirige a /gracias/ tras la ventana de gracia si FormSubmit queda colgado', async ({ page }) => {
-  const requests: string[] = []
+test('mantiene la incertidumbre y confirma en la misma página si llega éxito tardío', async ({ page }) => {
   await page.clock.install()
-  await page.addInitScript(() => {
-    const originalFetch = window.fetch.bind(window)
-    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-      sessionStorage.setItem('__lastFetchKeepalive', String(Boolean(init?.keepalive)))
-      return originalFetch(input, init)
-    }
+  let requests = 0
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  await page.route('https://formsubmit.co/ajax/**', async (route) => {
+    requests++
+    await gate
+    await route.fulfill({ status: 200, json: { success: true } })
   })
-
-  let releaseHang!: () => void
-  const hangGate = new Promise<void>((resolve) => {
-    releaseHang = resolve
-  })
-
-  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue()
-    requests.push(route.request().postData() ?? '')
-    await hangGate
-    try {
-      await route.abort()
-    } catch {
-      // Page already navigated away
-    }
-  })
-
-  await page.goto('/')
-  await expect(page.locator('form input[name="_next"]')).toHaveValue(/\/gracias\/$/)
-  await fillContactForm(page)
-  await page.getByRole('button', { name: 'Enviar consulta' }).click()
-
-  await expect.poll(() => requests.length).toBe(1)
-  await expect(page.getByRole('button', { name: 'Enviando…' })).toBeDisabled()
-
-  await page.clock.runFor(8_000)
-  await expect(page).toHaveURL(/\/gracias\/$/)
-  expect(await page.evaluate(() => sessionStorage.getItem('__lastFetchKeepalive'))).toBe('true')
-  expect(requests).toHaveLength(1)
-  const payload = new URLSearchParams(requests[0])
-  expect(payload.has('_next')).toBe(false)
-  expect(payload.get('email')).toBe('maria@example.com')
-
-  releaseHang()
-  await page.unrouteAll({ behavior: 'ignoreErrors' })
-})
-
-test('ignora rechazo o 504 tardío de FormSubmit después de la ventana de gracia', async ({ page }) => {
-  const requests: string[] = []
-  await page.clock.install()
-  await page.addInitScript(() => {
-    const originalFetch = window.fetch.bind(window)
-    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-      sessionStorage.setItem('__lastFetchKeepalive', String(Boolean(init?.keepalive)))
-      return originalFetch(input, init).then(
-        (response) => {
-          sessionStorage.setItem('__fetchSettled', 'true')
-          return response
-        },
-        (error: unknown) => {
-          sessionStorage.setItem('__fetchSettled', 'true')
-          throw error
-        },
-      )
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      const form = document.querySelector('form[name="consulta-mentoria"]')
-      if (!form) return
-      const observer = new MutationObserver(() => {
-        const alertText = form.querySelector('.form-status')?.textContent?.trim() ?? ''
-        const buttonText = form.querySelector('button[type="submit"]')?.textContent?.trim() ?? ''
-        if (alertText.length > 0 || buttonText === 'Reintentar') {
-          sessionStorage.setItem('__errorUiShown', 'true')
-        }
-      })
-      observer.observe(form, { childList: true, subtree: true, characterData: true })
-    })
-  })
-
-  let releasePost!: () => void
-  const postGate = new Promise<void>((resolve) => {
-    releasePost = resolve
-  })
-  let markGraciasRequested!: () => void
-  const graciasRequested = new Promise<void>((resolve) => {
-    markGraciasRequested = resolve
-  })
-  let releaseGracias!: () => void
-  const graciasGate = new Promise<void>((resolve) => {
-    releaseGracias = resolve
-  })
-
-  await page.route('https://formsubmit.co/ajax/eugebutelercoach@gmail.com', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue()
-    requests.push(route.request().postData() ?? '')
-    await postGate
-    try {
-      await route.fulfill({
-        status: 504,
-        contentType: 'text/html',
-        body: '<h1>504 Gateway Time-out</h1>',
-      })
-    } catch {
-      // Navigation already completed
-    }
-  })
-
-  await page.route('**/gracias/', async (route) => {
-    markGraciasRequested()
-    await graciasGate
-    await route.continue()
-  })
-
   await page.goto('/')
   await fillContactForm(page)
   const form = page.locator('form[name="consulta-mentoria"]')
   await form.getByRole('button', { name: 'Enviar consulta' }).click()
-
-  await expect.poll(() => requests.length).toBe(1)
+  await expect.poll(() => requests).toBe(1)
   await page.clock.runFor(8_000)
-  await graciasRequested
+  await expect(form.getByRole('alert')).toContainText('Todavía no pudimos confirmar el envío')
+  await expect(form.getByRole('alert').getByRole('link', { name: /Instagram/ })).toBeVisible()
+  await expect(form).not.toHaveAttribute('aria-busy')
+  await expect(form.locator('button')).not.toHaveText('Enviando…')
+  await expect(form.locator('button')).toBeDisabled()
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+  await expect(form.locator('button')).toBeDisabled()
+  await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('María')
+  await form.evaluate((el: HTMLFormElement) => el.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  expect(requests).toBe(1)
+  release()
+  await expect(form.getByRole('alert')).toContainText('Tu consulta fue enviada')
+  await expect(page).toHaveURL('/')
+  await expect(form.locator('button')).toBeDisabled()
+})
 
-  releasePost()
-  await new Promise((resolve) => setTimeout(resolve, 100))
+for (const failure of ['504', 'red']) {
+  test(`conserva incertidumbre ante ${failure} tardío`, async ({ page }) => {
+    await page.clock.install()
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch
+      const markProcessed = () => {
+        const channel = new MessageChannel()
+        channel.port1.onmessage = () => { document.documentElement.dataset.fetchProcessed = 'true' }
+        channel.port2.postMessage(null)
+      }
+      window.fetch = async (input, init) => {
+        try {
+          const response = await originalFetch(input, init)
+          const json = response.json.bind(response)
+          response.json = () => json().finally(markProcessed)
+          return response
+        } catch (error) {
+          markProcessed()
+          throw error
+        }
+      }
+    })
+    let requests = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    await page.route('https://formsubmit.co/ajax/**', async (route) => {
+      requests++
+      await gate
+      if (failure === 'red') await route.abort()
+      else await route.fulfill({ status: 504, body: 'Gateway timeout' })
+    })
+    await page.goto('/')
+    await fillContactForm(page)
+    const form = page.locator('form[name="consulta-mentoria"]')
+    await form.getByRole('button', { name: 'Enviar consulta' }).click()
+    await expect.poll(() => requests).toBe(1)
+    await page.clock.runFor(8_000)
+    await expect(form.getByRole('alert')).toContainText('Todavía no pudimos confirmar el envío')
+    release()
+    await expect(page.locator('html')).toHaveAttribute('data-fetch-processed', 'true')
+    await expect(form.locator('button')).toBeDisabled()
+    await expect(form.getByRole('alert')).not.toContainText('No se pudo enviar')
+    await expect(page).toHaveURL('/')
+  })
+}
 
-  releaseGracias()
-  await expect(page).toHaveURL(/\/gracias\/$/)
-  expect(await page.evaluate(() => sessionStorage.getItem('__lastFetchKeepalive'))).toBe('true')
-  expect(await page.evaluate(() => sessionStorage.getItem('__fetchSettled'))).toBe('true')
-  expect(await page.evaluate(() => sessionStorage.getItem('__errorUiShown'))).toBeNull()
-  expect(requests).toHaveLength(1)
-  expect(new URLSearchParams(requests[0]).has('_next')).toBe(false)
+test('el plazo incluye la lectura de un cuerpo JSON que no termina', async ({ page }) => {
+  await page.clock.install()
+  await page.addInitScript(() => {
+    window.fetch = async () => new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"success":'))
+    } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  await page.goto('/')
+  await fillContactForm(page)
+  const form = page.locator('form[name="consulta-mentoria"]')
+  await form.getByRole('button', { name: 'Enviar consulta' }).click()
+  await page.clock.runFor(8_000)
+  await expect(form.getByRole('alert')).toContainText('Todavía no pudimos confirmar el envío')
+  await expect(form).not.toHaveAttribute('aria-busy')
+  await expect(form.locator('button')).toBeDisabled()
+  await expect(page).toHaveURL('/')
+})
+
+test('el honeypot no envía ni confirma una consulta', async ({ page }) => {
+  let requests = 0
+  await page.route('https://formsubmit.co/**', async (route) => { requests++; await route.abort() })
+  await page.goto('/')
+  await fillContactForm(page)
+  await page.locator('[name="_honey"]').evaluate((input: HTMLInputElement) => { input.value = 'bot' })
+  await page.getByRole('button', { name: 'Enviar consulta' }).click()
+  await expect(page).toHaveURL('/')
+  expect(requests).toBe(0)
 })
 
 for (const scenario of [
+  { name: '200 sin success', fulfill: { status: 200, contentType: 'application/json', body: '{}' } },
   {
     name: '200 con success false',
     fulfill: { status: 200, contentType: 'application/json', body: JSON.stringify({ success: 'false', message: 'Activation required' }) },

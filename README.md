@@ -20,7 +20,7 @@ Para la portada, usar el original del retrato de perfil con blazer blanco en for
 
 1. Revisar los textos y el contenido audiovisual con Euge. Confirmar qué casilla va a recibir las consultas.
 2. Conectar el repositorio a Cloudflare Pages / Workers con comando de compilación `npm run build` y directorio de salida `dist`.
-3. El formulario envía las consultas directamente a `eugebutelercoach@gmail.com` mediante FormSubmit. En el primer envío real, FormSubmit mandará un correo de verificación a esa casilla para activar el formulario con un clic (`Activate Form`). Opcionalmente, podés sobreescribir el destino con `PUBLIC_WEB3FORMS_KEY` o `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare.
+3. El formulario envía las consultas directamente a `eugebutelercoach@gmail.com` mediante FormSubmit. En el primer envío real, FormSubmit mandará un correo de verificación a esa casilla para activar el formulario con un clic (`Activate Form`). Opcionalmente, podés sobreescribir el destino con `PUBLIC_WEB3FORMS_KEY` o `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare. Para envíos AJAX, el endpoint debe responder con HTTP 2xx y un objeto JSON con `success: true` o `success: "true"`.
 4. Enviar una consulta de prueba acordada y comprobar que llega a la casilla configurada.
 5. Desde un celular, probar el DM, la reproducción y el enlace a YouTube. Abrir también la tarjeta al compartir la URL pública.
 
@@ -31,6 +31,6 @@ Para la portada, usar el original del retrato de perfil con blazer blanco en for
   - Verificación temprana de `navigator.onLine === false` antes de iniciar el envío.
   - Cuerpo `URLSearchParams` con `Accept: application/json` (petición CORS simple sin preflight `OPTIONS`), omitiendo `_next` en el envío AJAX mientras se conserva `<input type="hidden" name="_next" ...>` en HTML para el fallback sin JavaScript.
   - `keepalive: byteLength <= 60_000` para que el navegador complete el `POST` en segundo plano si la página navega antes de recibir respuesta.
-  - Ventana de gracia acotada (`SUBMIT_HANDOFF_MS = 8000` ms) controlada con `settled`: si la respuesta llega dentro de los 8 s se valida `!response.ok` y un objeto JSON no nulo sin `success: false | 'false'`; si supera los 8 s sin fallar, se redirige a `/gracias/` sin abortar la petición `keepalive` y se ignoran rechazos tardíos posteriores a la transición.
+  - El plazo de 8 s incluye la respuesta y la lectura JSON. Solo HTTP 2xx con `success: true` o `"true"` confirma el envío: dentro del plazo redirige a `/gracias/`; después muestra la confirmación en el formulario. Al vencer el plazo se comunica la incertidumbre con acceso a Instagram, sin abortar ni permitir reenvíos; un rechazo tardío conserva ese estado.
 
 [Plan de implementación](docs/superpowers/plans/2026-11-18-landing-euge-buteler.md) · [Cloudflare Pages](https://developers.cloudflare.com/pages/)
