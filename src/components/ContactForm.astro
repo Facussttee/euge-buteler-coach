@@ -1,39 +1,22 @@
 ---
 import { site } from '../data/site'
-
-const web3FormsKey = import.meta.env.PUBLIC_WEB3FORMS_KEY
-const formAction =
-  import.meta.env.PUBLIC_FORM_ENDPOINT ||
-  (web3FormsKey ? 'https://api.web3forms.com/submit' : `https://formsubmit.co/${site.email}`)
-const ajaxEndpoint =
-  import.meta.env.PUBLIC_FORM_ENDPOINT ||
-  (web3FormsKey ? 'https://api.web3forms.com/submit' : `https://formsubmit.co/ajax/${site.email}`)
-const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString() : undefined
 ---
 
 <form
   class="contact-form"
   name="consulta-mentoria"
   method="POST"
-  action={formAction}
-  data-endpoint={ajaxEndpoint}
+  action="/api/contacto"
   data-ig-url={site.instagram.messageUrl}
 >
-  <h3>O escribime por mail desde acá</h3>
-  <input type="hidden" name="form-name" value="consulta-mentoria" />
-  <input type="hidden" name="_subject" value="Nueva consulta de mentoría 1 a 1 — Euge Buteler" />
-  <input type="hidden" name="_template" value="table" />
-  <input type="hidden" name="_captcha" value="false" />
-  {confirmationUrl && <input type="hidden" name="_next" value={confirmationUrl} />}
-  {web3FormsKey && <input type="hidden" name="access_key" value={web3FormsKey} />}
-  {web3FormsKey && <input type="hidden" name="subject" value="Nueva consulta de mentoría 1 a 1 — Euge Buteler" />}
+  <h3>O escribime desde acá</h3>
   <p hidden>
     <label>Dejá este campo vacío <input name="_honey" tabindex="-1" autocomplete="off" /></label>
     <label>No completar <input name="bot-field" tabindex="-1" autocomplete="off" /></label>
   </p>
 
   <label for="contact-name">Nombre</label>
-  <input id="contact-name" name="name" autocomplete="name" placeholder="Ej: Lucía" required />
+  <input id="contact-name" name="name" autocomplete="name" placeholder="Ej: Lucía" maxlength="120" required />
 
   <label for="contact-email">Correo electrónico</label>
   <input
@@ -43,6 +26,7 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
     inputmode="email"
     autocomplete="email"
     spellcheck="false"
+    maxlength="254"
     placeholder="tu@correo.com"
     required
   />
@@ -52,6 +36,7 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
     id="contact-message"
     name="message"
     rows="4"
+    maxlength="5000"
     placeholder="Contame en dos líneas qué te pasa hoy o qué querés trabajar en la mentoría…"
     required
   ></textarea>
@@ -62,14 +47,11 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
 </form>
 
 <script>
-  const confirmationPath = '/gracias/'
-  const SUBMIT_HANDOFF_MS = 8_000
-  const MAX_KEEPALIVE_BYTES = 60_000
   const form = document.querySelector<HTMLFormElement>('form[name="consulta-mentoria"]')
   const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
   const status = form?.querySelector<HTMLElement>('.form-status')
   const initialButtonLabel = button?.textContent ?? 'Enviar consulta'
-  let locked = false
+  let submitting = false
 
   function resetSubmitState() {
     if (!form || !button) return
@@ -79,7 +61,10 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
   }
 
   if (form && button && status) {
-    const showInstagram = (message: string) => {
+    const showFailure = (message: string) => {
+      submitting = false
+      resetSubmitState()
+      button.textContent = 'Reintentar'
       status.textContent = message
       const link = document.createElement('a')
       link.href = form.dataset.igUrl || 'https://www.instagram.com/eugebuteler.coach/'
@@ -88,12 +73,12 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
     }
 
     window.addEventListener('pageshow', (event) => {
-      if (event.persisted && !locked) resetSubmitState()
+      if (event.persisted && !submitting && button.disabled) resetSubmitState()
     })
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
-      if (locked || button.disabled) return
+      if (button.disabled) return
 
       const nameInput = form.querySelector<HTMLInputElement>('[name="name"]')
       const messageInput = form.querySelector<HTMLTextAreaElement>('[name="message"]')
@@ -112,64 +97,45 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
         return
       }
 
-      locked = true
+      if (!navigator.onLine) {
+        showFailure('No se pudo enviar tu consulta porque no hay conexión. Cuando vuelvas a tener conexión, reintentá o ')
+        return
+      }
+
+      submitting = true
       button.disabled = true
       form.setAttribute('aria-busy', 'true')
       button.textContent = 'Enviando…'
       status.textContent = ''
 
-      let timedOut = false
-      let graceTimer: number | undefined
-
       try {
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          throw new Error('Sin conexión a internet')
-        }
-
         const body = new URLSearchParams()
         for (const [name, value] of new FormData(form)) {
-          if (typeof value === 'string' && name !== '_next') body.append(name, value)
+          if (typeof value === 'string') body.append(name, value)
         }
 
-        const byteLength = new TextEncoder().encode(body.toString()).length
-        graceTimer = window.setTimeout(() => {
-          timedOut = true
-          form.removeAttribute('aria-busy')
-          button.textContent = initialButtonLabel
-          showInstagram('Todavía no pudimos confirmar el envío. ')
-        }, SUBMIT_HANDOFF_MS)
-
-        const response = await fetch(form.dataset.endpoint || form.action, {
+        const response = await fetch(form.action, {
           method: 'POST',
           headers: { Accept: 'application/json' },
           body,
-          keepalive: byteLength <= MAX_KEEPALIVE_BYTES,
         })
 
-        const result: unknown = await response.json().catch(() => null)
-        window.clearTimeout(graceTimer)
-        const isRecord = typeof result === 'object' && result !== null && !Array.isArray(result)
-        const success = isRecord && 'success' in result ? result.success : undefined
-        if (!response.ok || (success !== true && success !== 'true')) {
-          throw new Error('El envío no fue aceptado')
+        const result: unknown = await response.json()
+        const success = result && typeof result === 'object' && 'success' in result ? result.success : undefined
+        if (response.status === 202 && success === true) {
+          submitting = false
+          window.location.assign('/gracias/')
+          return
         }
 
-        if (timedOut) {
-          status.textContent = 'Tu consulta fue enviada.'
-        } else {
-          locked = false
-          window.location.assign(confirmationPath)
+        if (response.status >= 400 && success === false) {
+          showFailure('No se pudo enviar tu consulta. Reintentá o ')
+          return
         }
       } catch {
-        window.clearTimeout(graceTimer)
-        if (timedOut) return
-
-        locked = false
-        form.removeAttribute('aria-busy')
-        showInstagram('No se pudo enviar tu consulta. Revisá tu conexión o ')
-        button.textContent = 'Reintentar'
-        button.disabled = false
+        // Sin una respuesta válida no sabemos si el sitio registró la consulta.
       }
+      showFailure('No pudimos confirmar si recibí tu consulta. Podés reintentar o ')
     })
   }
 </script>
