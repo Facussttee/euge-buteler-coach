@@ -63,10 +63,13 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
 
 <script>
   const confirmationPath = '/gracias/'
+  const SUBMIT_HANDOFF_MS = 8_000
+  const MAX_KEEPALIVE_BYTES = 60_000
   const form = document.querySelector<HTMLFormElement>('form[name="consulta-mentoria"]')
   const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
   const status = form?.querySelector<HTMLElement>('.form-status')
   const initialButtonLabel = button?.textContent ?? 'Enviar consulta'
+  let locked = false
 
   function resetSubmitState() {
     if (!form || !button) return
@@ -76,13 +79,21 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
   }
 
   if (form && button && status) {
+    const showInstagram = (message: string) => {
+      status.textContent = message
+      const link = document.createElement('a')
+      link.href = form.dataset.igUrl || 'https://www.instagram.com/eugebuteler.coach/'
+      link.textContent = 'escribime por Instagram ↗'
+      status.append(link, '.')
+    }
+
     window.addEventListener('pageshow', (event) => {
-      if (event.persisted) resetSubmitState()
+      if (event.persisted && !locked) resetSubmitState()
     })
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
-      if (button.disabled) return
+      if (locked || button.disabled) return
 
       const nameInput = form.querySelector<HTMLInputElement>('[name="name"]')
       const messageInput = form.querySelector<HTMLTextAreaElement>('[name="message"]')
@@ -98,38 +109,64 @@ const confirmationUrl = Astro.site ? new URL('/gracias/', Astro.site).toString()
       const honeyInput = form.querySelector<HTMLInputElement>('[name="_honey"]')
       const botInput = form.querySelector<HTMLInputElement>('[name="bot-field"]')
       if (honeyInput?.value || botInput?.value) {
-        window.location.assign(confirmationPath)
         return
       }
 
+      locked = true
       button.disabled = true
       form.setAttribute('aria-busy', 'true')
       button.textContent = 'Enviando…'
       status.textContent = ''
 
+      let timedOut = false
+      let graceTimer: number | undefined
+
       try {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw new Error('Sin conexión a internet')
+        }
+
         const body = new URLSearchParams()
         for (const [name, value] of new FormData(form)) {
-          if (typeof value === 'string') body.append(name, value)
+          if (typeof value === 'string' && name !== '_next') body.append(name, value)
         }
+
+        const byteLength = new TextEncoder().encode(body.toString()).length
+        graceTimer = window.setTimeout(() => {
+          timedOut = true
+          form.removeAttribute('aria-busy')
+          button.textContent = initialButtonLabel
+          showInstagram('Todavía no pudimos confirmar el envío. ')
+        }, SUBMIT_HANDOFF_MS)
 
         const response = await fetch(form.dataset.endpoint || form.action, {
           method: 'POST',
           headers: { Accept: 'application/json' },
           body,
+          keepalive: byteLength <= MAX_KEEPALIVE_BYTES,
         })
-        const result = await response.clone().json().catch(() => null)
-        if (!response.ok || result?.success === false || result?.success === 'false') {
+
+        const result: unknown = await response.json().catch(() => null)
+        window.clearTimeout(graceTimer)
+        const isRecord = typeof result === 'object' && result !== null && !Array.isArray(result)
+        const success = isRecord && 'success' in result ? result.success : undefined
+        if (!response.ok || (success !== true && success !== 'true')) {
           throw new Error('El envío no fue aceptado')
         }
-        window.location.assign(confirmationPath)
+
+        if (timedOut) {
+          status.textContent = 'Tu consulta fue enviada.'
+        } else {
+          locked = false
+          window.location.assign(confirmationPath)
+        }
       } catch {
+        window.clearTimeout(graceTimer)
+        if (timedOut) return
+
+        locked = false
         form.removeAttribute('aria-busy')
-        status.textContent = 'No se pudo enviar tu consulta. Revisá tu conexión o '
-        const igLink = document.createElement('a')
-        igLink.href = form.dataset.igUrl || 'https://www.instagram.com/eugebuteler.coach/'
-        igLink.textContent = 'escribime por Instagram ↗'
-        status.append(igLink, '.')
+        showInstagram('No se pudo enviar tu consulta. Revisá tu conexión o ')
         button.textContent = 'Reintentar'
         button.disabled = false
       }

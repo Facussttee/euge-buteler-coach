@@ -20,8 +20,17 @@ Para la portada, usar el original del retrato de perfil con blazer blanco en for
 
 1. Revisar los textos y el contenido audiovisual con Euge. Confirmar qué casilla va a recibir las consultas.
 2. Conectar el repositorio a Cloudflare Pages / Workers con comando de compilación `npm run build` y directorio de salida `dist`.
-3. El formulario envía las consultas directamente a `eugebutelercoach@gmail.com` mediante FormSubmit. En el primer envío real, FormSubmit mandará un correo de verificación a esa casilla para activar el formulario con un clic (`Activate Form`). Opcionalmente, podés sobreescribir el destino con `PUBLIC_WEB3FORMS_KEY` o `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare.
+3. El formulario envía las consultas directamente a `eugebutelercoach@gmail.com` mediante FormSubmit. En el primer envío real, FormSubmit mandará un correo de verificación a esa casilla para activar el formulario con un clic (`Activate Form`). Opcionalmente, podés sobreescribir el destino con `PUBLIC_WEB3FORMS_KEY` o `PUBLIC_FORM_ENDPOINT` en las variables de entorno de Cloudflare. Para envíos AJAX, el endpoint debe responder con HTTP 2xx y un objeto JSON con `success: true` o `success: "true"`.
 4. Enviar una consulta de prueba acordada y comprobar que llega a la casilla configurada.
 5. Desde un celular, probar el DM, la reproducción y el enlace a YouTube. Abrir también la tarjeta al compartir la URL pública.
+
+## Formulario de contacto (FormSubmit)
+
+- **Causa raíz del retardo y falsos errores (R1):** FormSubmit (`https://formsubmit.co/ajax/...`) ejecuta las validaciones antispam y el envío SMTP de forma síncrona dentro de la petición HTTP detrás de Cloudflare antes de devolver cabeceras (demoras medidas de 18–55 s y >100 s bajo carga). Como el cuerpo del `POST` llega en <0.3 s, `submissions@formsubmit.co` sí despacha el correo, pero si Cloudflare corta la espera con `504`/`524` (cuyas páginas de error no incluyen cabeceras CORS) o el WebView móvil cierra el socket inactivo, `fetch()` rechazaba hacia el bloque `catch` mostrando `"No se pudo enviar…"` y `"Reintentar"`.
+- **Corrección implementada (`src/components/ContactForm.astro`):**
+  - Verificación temprana de `navigator.onLine === false` antes de iniciar el envío.
+  - Cuerpo `URLSearchParams` con `Accept: application/json` (petición CORS simple sin preflight `OPTIONS`), omitiendo `_next` en el envío AJAX mientras se conserva `<input type="hidden" name="_next" ...>` en HTML para el fallback sin JavaScript.
+  - `keepalive: byteLength <= 60_000` para que el navegador complete el `POST` en segundo plano si la página navega antes de recibir respuesta.
+  - El plazo de 8 s incluye la respuesta y la lectura JSON. Solo HTTP 2xx con `success: true` o `"true"` confirma el envío: dentro del plazo redirige a `/gracias/`; después muestra la confirmación en el formulario. Al vencer el plazo se comunica la incertidumbre con acceso a Instagram, sin abortar ni permitir reenvíos; un rechazo tardío conserva ese estado.
 
 [Plan de implementación](docs/superpowers/plans/2026-11-18-landing-euge-buteler.md) · [Cloudflare Pages](https://developers.cloudflare.com/pages/)
